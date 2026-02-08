@@ -146,6 +146,7 @@ const moduleConfigs: ModuleConfig[] = [
       { name: 'Communication Center', href: '/pr/communication', icon: MessageSquare },
       { name: 'Social & Digital', href: '/pr/social', icon: Share2 },
       { name: 'Live Streaming', href: '/pr/live-streaming', icon: Radio },
+      { name: 'Live Darshan', href: '/pr/live-darshan', icon: Radio },
       { name: 'Devotee Experience', href: '/pr/devotee-experience', icon: Users },
     ],
   },

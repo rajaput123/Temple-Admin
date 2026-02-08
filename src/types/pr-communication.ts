@@ -205,6 +205,24 @@ export interface SupportTicket {
 // Live Streaming Types
 export type StreamStatus = 'live' | 'scheduled' | 'offline' | 'ended';
 export type StreamPlatform = 'youtube' | 'facebook' | 'custom';
+export type EventLifecycleState = 'draft' | 'scheduled' | 'live' | 'completed' | 'archived';
+
+export interface RTMPConfig {
+  serverUrl: string;
+  streamKey: string;
+  rtmpUrl?: string; // Full RTMP URL (serverUrl + streamKey)
+  validated: boolean;
+  validatedAt?: string;
+}
+
+export interface StreamHealthMetrics {
+  connectionStatus: 'connected' | 'disconnected' | 'reconnecting' | 'error';
+  bitrate?: number; // kbps
+  latency?: number; // milliseconds
+  frameRate?: number; // fps
+  resolution?: string; // e.g., "1920x1080"
+  lastHealthCheck: string; // ISO datetime
+}
 
 export interface LiveStream {
   id: string;
@@ -212,9 +230,11 @@ export interface LiveStream {
   description: string;
   thumbnail: Attachment;
   status: StreamStatus;
+  lifecycleState: EventLifecycleState; // Event lifecycle state
   platform: StreamPlatform;
   embedUrl?: string; // YouTube/Facebook Live embed URL
   streamKey?: string; // For custom streaming
+  rtmpConfig?: RTMPConfig; // RTMP configuration
   linkedEventId?: string;
   scheduledStartTime?: string; // ISO datetime
   actualStartTime?: string;
@@ -222,9 +242,14 @@ export interface LiveStream {
   viewerCount: number;
   peakViewerCount: number;
   commentsEnabled: boolean;
+  chatEnabled: boolean; // Separate chat toggle
+  donationLink?: string; // Donation URL
   multiCameraEnabled: boolean;
   cameras: CameraConfig[];
   logs: StreamLog[];
+  healthMetrics?: StreamHealthMetrics;
+  autoArchiveEnabled: boolean; // Auto-archive after completion
+  archivedAt?: string; // When stream was archived
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -241,7 +266,68 @@ export interface CameraConfig {
 export interface StreamLog {
   id: string;
   streamId: string;
-  action: 'started' | 'stopped' | 'paused' | 'resumed' | 'error' | 'viewer_joined' | 'viewer_left';
+  action: 'started' | 'stopped' | 'paused' | 'resumed' | 'error' | 'viewer_joined' | 'viewer_left' | 'created' | 'updated' | 'deleted' | 'scheduled' | 'archived' | 'reconnected' | 'health_check';
+  message: string;
+  timestamp: string;
+  userId?: string;
+  metadata?: Record<string, any>;
+}
+
+// Live Darshan Types
+export type DarshanStreamMode = 'continuous' | 'scheduled';
+export type DarshanStreamStatus = 'on' | 'off' | 'reconnecting' | 'error';
+
+export interface DarshanStreamSource {
+  id: string;
+  name: string;
+  type: 'camera' | 'rtmp' | 'url';
+  source: string; // Camera ID, RTMP URL, or stream URL
+  isActive: boolean;
+  priority: number; // For failover
+}
+
+export interface DarshanStreamSchedule {
+  enabled: boolean;
+  startTime?: string; // HH:mm format
+  endTime?: string; // HH:mm format
+  daysOfWeek?: number[]; // 0-6, Sunday-Saturday
+}
+
+export interface DarshanReconnectConfig {
+  enabled: boolean;
+  maxAttempts: number;
+  retryInterval: number; // seconds
+  currentAttempts: number;
+  lastAttemptAt?: string;
+}
+
+export interface LiveDarshan {
+  id: string;
+  name: string;
+  description?: string;
+  status: DarshanStreamStatus;
+  mode: DarshanStreamMode;
+  streamSource: DarshanStreamSource;
+  schedule?: DarshanStreamSchedule;
+  reconnectConfig: DarshanReconnectConfig;
+  viewerCount: number;
+  peakViewerCount: number;
+  uptime: number; // Total seconds stream has been active
+  currentSessionStartTime?: string; // ISO datetime of current session
+  totalUptime: number; // Cumulative uptime across all sessions
+  logs: DarshanActivityLog[];
+  healthMetrics?: StreamHealthMetrics;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  lastStartedAt?: string;
+  lastStoppedAt?: string;
+}
+
+export interface DarshanActivityLog {
+  id: string;
+  darshanId: string;
+  action: 'turned_on' | 'turned_off' | 'reconnected' | 'failed' | 'scheduled_start' | 'scheduled_stop' | 'source_changed' | 'health_check';
   message: string;
   timestamp: string;
   userId?: string;

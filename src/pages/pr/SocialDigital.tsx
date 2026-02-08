@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Share2, Calendar, Facebook, Twitter, Instagram } from 'lucide-react';
+import { Plus, Share2, Facebook, Twitter, Instagram } from 'lucide-react';
 import { dummySocialChannels, dummySocialPosts, dummyContentCalendars } from '@/data/communications-data';
-import type { SocialPost, SocialPlatform } from '@/types/communications';
+import type { SocialPost, SocialPlatform, ContentCalendar } from '@/types/communications';
 import { usePermissions } from '@/hooks/usePermissions';
 import { CreatePostModal } from '@/components/pr/communication/CreatePostModal';
 import { PostLog } from '@/components/pr/communication/PostLog';
@@ -27,12 +27,36 @@ const platformIcons: Record<SocialPlatform, any> = {
 export default function SocialDigital() {
   const { checkWriteAccess } = usePermissions();
   const [channels, setChannels] = useState(dummySocialChannels);
-  const [posts, setPosts] = useState<SocialPost[]>(dummySocialPosts);
-  const [calendars] = useState(dummyContentCalendars);
+  const [posts, setPosts] = useState<SocialPost[]>(() => {
+    // Merge scheduled content from calendar into posts
+    const calendarPosts: SocialPost[] = dummyContentCalendars.map((cal: ContentCalendar) => ({
+      id: cal.id,
+      platform: 'facebook' as SocialPlatform, // Default platform, can be enhanced
+      content: cal.content,
+      mediaUrls: [],
+      status: cal.status === 'scheduled' ? 'scheduled' : cal.status === 'published' ? 'published' : 'draft',
+      moderationStatus: 'approved' as any,
+      isPinned: false,
+      priority: 'normal' as any,
+      engagementMetrics: {
+        likes: 0,
+        shares: 0,
+        comments: 0,
+        views: 0,
+      },
+      publishedAt: cal.status === 'published' ? cal.scheduledDate : undefined,
+      scheduledAt: cal.status === 'scheduled' ? `${cal.scheduledDate}T${cal.scheduledTime || '09:00'}:00` : undefined,
+      createdBy: cal.createdBy,
+      createdAt: cal.createdAt,
+      version: 1,
+      isLocked: false,
+    }));
+    return [...dummySocialPosts, ...calendarPosts];
+  });
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'channels' | 'posts' | 'calendar'>('posts');
+  const [activeTab, setActiveTab] = useState<'channels' | 'posts'>('posts');
 
   // Component mount/unmount logging
   useEffect(() => {
@@ -179,157 +203,42 @@ export default function SocialDigital() {
     },
   ];
 
-  const postColumns = [
-    {
-      key: 'platform',
-      label: 'Platform',
-      sortable: true,
-      render: (value: unknown, row: SocialPost) => {
-        const Icon = platformIcons[row.platform] || Share2;
-        return (
-          <div className="flex items-center gap-2">
-            <Icon className="h-4 w-4" />
-            <span className="text-sm capitalize">{row.platform.replace('_', ' ')}</span>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'content',
-      label: 'Content',
-      render: (value: unknown, row: SocialPost) => (
-        <div className="max-w-md">
-          <div className="text-sm text-gray-900 truncate">{row.content}</div>
-          {row.mediaUrls && row.mediaUrls.length > 0 && (
-            <div className="text-xs text-gray-500 mt-0.5">
-              {row.mediaUrls.length} media file(s)
-            </div>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      sortable: true,
-      render: (value: unknown, row: SocialPost) => (
-        <div className="flex flex-col gap-1">
-          <Badge variant={row.status === 'published' ? 'default' : 'outline'}>
-            {row.status}
-          </Badge>
-          {row.isPinned && (
-            <Badge variant="outline" className="text-xs">Pinned</Badge>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'moderationStatus',
-      label: 'Moderation',
-      sortable: true,
-      render: (value: unknown, row: SocialPost) => (
-        <Badge
-          variant={
-            row.moderationStatus === 'approved'
-              ? 'default'
-              : row.moderationStatus === 'rejected'
-              ? 'destructive'
-              : 'outline'
-          }
-        >
-          {row.moderationStatus}
-        </Badge>
-      ),
-    },
-    {
-      key: 'engagementMetrics',
-      label: 'Engagement',
-      render: (value: unknown, row: SocialPost) => {
-        const metrics = row.engagementMetrics;
-        if (!metrics) return <span className="text-sm text-gray-500">-</span>;
-        return (
-          <div className="text-xs">
-            <div>👍 {metrics.likes || 0}</div>
-            <div>📤 {metrics.shares || 0}</div>
-            <div>💬 {metrics.comments || 0}</div>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'publishedAt',
-      label: 'Published',
-      sortable: true,
-      render: (value: unknown, row: SocialPost) => (
-        <div className="text-sm">
-          {row.publishedAt
-            ? new Date(row.publishedAt).toLocaleDateString()
-            : '-'}
-        </div>
-      ),
-    },
-  ];
+  // Dynamic button based on active tab
+  const getHeaderAction = () => {
+    if (!canWrite) return undefined;
 
-  const calendarColumns = [
-    {
-      key: 'title',
-      label: 'Title',
-      sortable: true,
-      render: (value: unknown, row: any) => (
-        <div className="max-w-md">
-          <div className="font-medium">{row.title}</div>
-          <div className="text-xs text-gray-500 mt-0.5 truncate">{row.content}</div>
-        </div>
-      ),
-    },
-    {
-      key: 'scheduledDate',
-      label: 'Scheduled',
-      sortable: true,
-      render: (value: unknown, row: any) => (
-        <div className="text-sm">
-          <div>{new Date(row.scheduledDate).toLocaleDateString()}</div>
-          {row.scheduledTime && (
-            <div className="text-xs text-gray-500">{row.scheduledTime}</div>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'channels',
-      label: 'Channels',
-      render: (value: unknown, row: any) => (
-        <div className="text-sm">{row.channels.length} channel(s)</div>
-      ),
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      sortable: true,
-      render: (value: unknown, row: any) => (
-        <Badge variant={row.status === 'published' ? 'default' : 'outline'}>
-          {row.status}
-        </Badge>
-      ),
-    },
-  ];
+    switch (activeTab) {
+      case 'posts':
+        return (
+          <Button 
+            onClick={() => setIsPostModalOpen(true)}
+            className="gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Create Post
+          </Button>
+        );
+      case 'channels':
+        return (
+          <Button 
+            onClick={() => toast({ title: 'Coming Soon', description: 'Channel management feature will be available soon.' })}
+            className="gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Add Channel
+          </Button>
+        );
+      default:
+        return undefined;
+    }
+  };
 
   return (
     <MainLayout>
       <PageHeader
         title="Social & Digital"
         description="Manage official social media accounts, content publishing, and moderation"
-        actions={
-          canWrite ? (
-            <Button 
-              onClick={() => setIsPostModalOpen(true)}
-              className="gap-2"
-            >
-              <Plus className="h-4 w-4" />
-              Create Post
-            </Button>
-          ) : undefined
-        }
+        actions={getHeaderAction()}
       />
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="space-y-4">
@@ -342,48 +251,14 @@ export default function SocialDigital() {
             <Share2 className="h-4 w-4 mr-2" />
             Social Posts
           </TabsTrigger>
-          <TabsTrigger value="calendar">
-            <Calendar className="h-4 w-4 mr-2" />
-            Content Calendar
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="channels">
-          <div className="mb-4">
-            {canWrite && (
-              <Button onClick={() => toast({ title: 'Coming Soon', description: 'Channel management feature will be available soon.' })}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Channel
-              </Button>
-            )}
-          </div>
           <DataTable data={channels} columns={channelColumns} />
         </TabsContent>
 
         <TabsContent value="posts" className="m-0">
-          <div className="h-full flex flex-col">
-            <div className="flex items-center justify-between border-b pb-4 mb-6">
-              <div className="space-y-1">
-                <h2 className="text-2xl font-bold tracking-tight">Social Posts</h2>
-                <p className="text-muted-foreground">
-                  View and manage all your social media posts
-                </p>
-              </div>
-            </div>
-            <PostLog posts={posts} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="calendar">
-          <div className="mb-4">
-            {canWrite && (
-              <Button onClick={() => toast({ title: 'Coming Soon', description: 'Content scheduling feature will be available soon.' })}>
-                <Plus className="h-4 w-4 mr-2" />
-                Schedule Content
-              </Button>
-            )}
-          </div>
-          <DataTable data={calendars} columns={calendarColumns} />
+          <PostLog posts={posts} />
         </TabsContent>
       </Tabs>
 

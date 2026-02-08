@@ -90,6 +90,7 @@ import Announcements from "./pages/pr/Announcements";
 import CommunicationCenter from "./pages/pr/communication/CommunicationCenter";
 import SocialDigital from "./pages/pr/SocialDigital";
 import LiveStreaming from "./pages/pr/LiveStreaming";
+import LiveDarshan from "./pages/pr/LiveDarshan";
 import CommunityFeed from "./pages/pr/devotee-experience/CommunityFeed";
 import SupportTickets from "./pages/pr/devotee-experience/SupportTickets";
 // Legacy imports (keeping for backward compatibility)
@@ -260,6 +261,7 @@ function AppRoutes() {
       <Route path="/pr/communication/reports" element={<ProtectedRoute><CommunicationCenter /></ProtectedRoute>} />
       <Route path="/pr/social" element={<ProtectedRoute><SocialDigital /></ProtectedRoute>} />
       <Route path="/pr/live-streaming" element={<ProtectedRoute><LiveStreaming /></ProtectedRoute>} />
+      <Route path="/pr/live-darshan" element={<ProtectedRoute><LiveDarshan /></ProtectedRoute>} />
       <Route path="/pr/devotee-experience" element={<ProtectedRoute><Navigate to="/pr/devotee-experience/feed" replace /></ProtectedRoute>} />
       <Route path="/pr/devotee-experience/feed" element={<ProtectedRoute><CommunityFeed /></ProtectedRoute>} />
       <Route path="/pr/devotee-experience/support" element={<ProtectedRoute><SupportTickets /></ProtectedRoute>} />

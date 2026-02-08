@@ -5,15 +5,38 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Video, Radio, Play, Square, Clock, Users, AlertCircle, Calendar } from 'lucide-react';
+import { Video, Radio, Play, Square, Clock, Users, AlertCircle, Calendar, Trash2, Edit, Archive, Plus } from 'lucide-react';
 import { 
   getLiveStreams, 
   startLiveStream, 
   stopLiveStream,
-  updateStreamStatus 
+  updateStreamStatus,
+  deleteLiveStream,
+  scheduleLiveStream,
+  archiveLiveStream,
+  updateLiveStream,
+  createLiveStream,
 } from '@/lib/pr-communication-store';
-import type { LiveStream, StreamStatus } from '@/types/pr-communication';
+import type { LiveStream, StreamStatus, EventLifecycleState } from '@/types/pr-communication';
 import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export default function LiveStreaming() {
   const [streams, setStreams] = useState<LiveStream[]>([]);
@@ -21,6 +44,18 @@ export default function LiveStreaming() {
   const [hasError, setHasError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{ type: 'start' | 'stop' | 'delete' | 'archive'; id: string } | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newStreamTitle, setNewStreamTitle] = useState('');
+  const [newStreamDescription, setNewStreamDescription] = useState('');
+  const [newStreamScheduledTime, setNewStreamScheduledTime] = useState('');
+  const [newStreamPlatform, setNewStreamPlatform] = useState<'youtube' | 'facebook' | 'custom'>('youtube');
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingStream, setEditingStream] = useState<LiveStream | null>(null);
+  const [editStreamTitle, setEditStreamTitle] = useState('');
+  const [editStreamDescription, setEditStreamDescription] = useState('');
+  const [editScheduledTime, setEditScheduledTime] = useState('');
 
   // Component mount/unmount logging
   useEffect(() => {
@@ -109,11 +144,21 @@ export default function LiveStreaming() {
   }, [streams]);
 
   const scheduledStreams = useMemo(() => {
-    return streams.filter(s => s.status === 'scheduled');
+    // Show both scheduled streams AND draft streams (newly created)
+    return streams.filter(s => 
+      s.status === 'scheduled' || 
+      (s.lifecycleState === 'draft' && s.status === 'offline') ||
+      s.lifecycleState === 'scheduled'
+    );
   }, [streams]);
 
   const pastStreams = useMemo(() => {
-    return streams.filter(s => s.status === 'ended' || s.status === 'offline');
+    // Show completed and archived streams
+    return streams.filter(s => 
+      s.status === 'ended' || 
+      s.lifecycleState === 'completed' ||
+      s.lifecycleState === 'archived'
+    );
   }, [streams]);
 
   // Loading state
@@ -163,38 +208,92 @@ export default function LiveStreaming() {
   }
 
   const handleGoLive = (streamId: string) => {
-    try {
-      const stream = startLiveStream(streamId, 'current-user');
-      if (stream) {
-        const updatedStreams = getLiveStreams();
-        if (Array.isArray(updatedStreams)) {
-          setStreams(updatedStreams);
-        }
-        setSelectedStream(stream);
-        toast.success('Stream started successfully');
-      }
-    } catch (error) {
-      console.error('[LiveStreaming] Error starting stream:', error);
-      toast.error('Failed to start stream');
-    }
+    setConfirmAction({ type: 'start', id: streamId });
+    setConfirmDialogOpen(true);
   };
 
   const handleEndStream = (streamId: string) => {
-    if (confirm('Are you sure you want to end this stream?')) {
-      try {
-        const stream = stopLiveStream(streamId, 'current-user');
-        if (stream) {
-          const updatedStreams = getLiveStreams();
-          if (Array.isArray(updatedStreams)) {
-            setStreams(updatedStreams);
+    setConfirmAction({ type: 'stop', id: streamId });
+    setConfirmDialogOpen(true);
+  };
+
+  const handleDelete = (streamId: string) => {
+    setConfirmAction({ type: 'delete', id: streamId });
+    setConfirmDialogOpen(true);
+  };
+
+  const handleArchive = (streamId: string) => {
+    setConfirmAction({ type: 'archive', id: streamId });
+    setConfirmDialogOpen(true);
+  };
+
+  const confirmActionHandler = () => {
+    if (!confirmAction) return;
+    
+    try {
+      const userId = 'current-user'; // Get from auth context
+      let result: LiveStream | null = null;
+      let success = false;
+      
+      switch (confirmAction.type) {
+        case 'start':
+          result = startLiveStream(confirmAction.id, userId);
+          if (result) {
+            toast.success('Stream started successfully');
+            success = true;
+          } else {
+            toast.error('Failed to start stream. Check stream state.');
           }
-          setSelectedStream(null);
-          toast.success('Stream ended successfully');
-        }
-      } catch (error) {
-        console.error('[LiveStreaming] Error ending stream:', error);
-        toast.error('Failed to end stream');
+          break;
+        case 'stop':
+          result = stopLiveStream(confirmAction.id, userId);
+          if (result) {
+            toast.success('Stream ended successfully');
+            success = true;
+            setSelectedStream(null);
+          } else {
+            toast.error('Failed to end stream');
+          }
+          break;
+        case 'delete':
+          success = deleteLiveStream(confirmAction.id, userId);
+          if (success) {
+            toast.success('Stream deleted successfully');
+            setSelectedStream(null);
+          } else {
+            toast.error('Failed to delete stream. Stream may be live.');
+          }
+          break;
+        case 'archive':
+          result = archiveLiveStream(confirmAction.id, userId);
+          if (result) {
+            toast.success('Stream archived successfully');
+            success = true;
+          } else {
+            toast.error('Failed to archive stream. Stream must be completed.');
+          }
+          break;
       }
+      
+      // Refresh streams list after any action
+      if (success || result) {
+        const updatedStreams = getLiveStreams();
+        if (Array.isArray(updatedStreams)) {
+          setStreams(updatedStreams);
+          // Set selected stream if it was started
+          if (result && confirmAction.type === 'start') {
+            setSelectedStream(result);
+          } else if (result && confirmAction.type !== 'delete' && confirmAction.type !== 'stop') {
+            setSelectedStream(result);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[LiveStreaming] Error:', error);
+      toast.error('An error occurred');
+    } finally {
+      setConfirmDialogOpen(false);
+      setConfirmAction(null);
     }
   };
 
@@ -244,34 +343,24 @@ export default function LiveStreaming() {
           { label: 'PR & Communication', href: '/pr' },
           { label: 'Live Streaming', href: '/pr/live-streaming' },
         ]}
+        actions={
+          <Button onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Stream
+          </Button>
+        }
       />
 
       <div className="space-y-6">
-        {/* Main Video Player Section - Always Visible */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">
-              {activeStreams.length > 0 ? 'Live Now' : 'Video Streaming'}
-            </h3>
-            {activeStreams.length === 0 && (
-              <Button
-                size="sm"
-                className="gap-2"
-                onClick={() => {
-                  if (scheduledStreams.length > 0) {
-                    handleGoLive(scheduledStreams[0].id);
-                  }
-                }}
-              >
-                <Play className="h-4 w-4" />
-                Start Stream
-              </Button>
-            )}
-          </div>
+        {/* Main Video Player Section - Only show when there are live streams */}
+        {activeStreams.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Live Now</h3>
+            </div>
 
-          {/* Video Player - Show active stream or placeholder */}
-          {activeStreams.length > 0 ? (
-            activeStreams.map(stream => (
+            {/* Video Player - Show active stream */}
+            {activeStreams.map(stream => (
               <Card key={stream.id} className="rounded-xl border-2 border-red-200 shadow-lg">
                 <CardContent className="p-6">
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -382,83 +471,22 @@ export default function LiveStreaming() {
                   </div>
                 </CardContent>
               </Card>
-            ))
-          ) : (
-            /* Placeholder Video Player */
-            <Card className="rounded-xl border-2 border-dashed border-gray-300 shadow-lg">
-              <CardContent className="p-6">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Video Player Placeholder */}
-                  <div className="lg:col-span-2">
-                    <div className="relative w-full bg-black rounded-lg overflow-hidden shadow-2xl">
-                      <div className="aspect-video relative flex items-center justify-center bg-gradient-to-br from-gray-900 to-black">
-                        <div className="text-white text-center z-10">
-                          <div className="relative mb-6">
-                            <Video className="h-32 w-32 mx-auto opacity-20" />
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <div className="h-4 w-4 bg-gray-500 rounded-full"></div>
-                            </div>
-                          </div>
-                          <p className="text-2xl font-semibold mb-2">No Active Stream</p>
-                          <p className="text-sm opacity-75 mb-4">Start a scheduled stream to begin broadcasting</p>
-                          {scheduledStreams.length > 0 && (
-                            <Button
-                              className="gap-2"
-                              onClick={() => handleGoLive(scheduledStreams[0].id)}
-                            >
-                              <Play className="h-4 w-4" />
-                              Start {scheduledStreams[0].title}
-                            </Button>
-                          )}
-                        </div>
-                        <div className="absolute top-4 right-4 z-20">
-                          <Badge className="bg-gray-100 text-gray-800 border-gray-200">
-                            ⚫ OFFLINE
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Info Panel */}
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="font-semibold text-lg mb-2">Stream Information</h4>
-                      <p className="text-sm text-muted-foreground">
-                        {scheduledStreams.length > 0 
-                          ? `You have ${scheduledStreams.length} scheduled stream${scheduledStreams.length > 1 ? 's' : ''} ready to start.`
-                          : 'No streams available. Create a new stream to get started.'}
-                      </p>
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">Viewers</span>
-                        </div>
-                        <span className="text-xl font-bold">0</span>
-                      </div>
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-medium">Status</span>
-                        </div>
-                        <span className="text-sm font-mono">Offline</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+            ))}
+          </div>
+        )}
 
         {/* Stream List */}
         <Tabs defaultValue="scheduled" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
-            <TabsTrigger value="past">Past Streams</TabsTrigger>
-          </TabsList>
+          <div className="flex items-center justify-between">
+            <TabsList>
+              <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
+              <TabsTrigger value="past">Past Streams</TabsTrigger>
+            </TabsList>
+            <Button onClick={() => setCreateDialogOpen(true)} variant="outline">
+              <Plus className="h-4 w-4 mr-2" />
+              Create Stream
+            </Button>
+          </div>
 
           <TabsContent value="scheduled" className="space-y-4">
             {scheduledStreams.length === 0 ? (
@@ -466,7 +494,11 @@ export default function LiveStreaming() {
                 <CardContent className="p-12 text-center">
                   <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
                   <p className="font-medium">No scheduled streams</p>
-                  <p className="text-sm text-muted-foreground mt-1">Create a new stream to get started</p>
+                  <p className="text-sm text-muted-foreground mt-1 mb-4">Create a new stream to get started</p>
+                  <Button onClick={() => setCreateDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Stream
+                  </Button>
                 </CardContent>
               </Card>
             ) : (
@@ -481,22 +513,46 @@ export default function LiveStreaming() {
                         <div>
                           <div className="font-medium">{stream.title}</div>
                           <div className="text-sm text-muted-foreground">
+                            {stream.lifecycleState === 'draft' && (
+                              <span className="text-orange-600 font-medium mr-2">Draft •</span>
+                            )}
                             {stream.scheduledStartTime 
-                              ? new Date(stream.scheduledStartTime).toLocaleString()
+                              ? `Scheduled: ${new Date(stream.scheduledStartTime).toLocaleString()}`
+                              : stream.lifecycleState === 'draft' 
+                              ? 'Not scheduled yet'
                               : 'Not scheduled'}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
                         {getStatusBadge(stream.status)}
-                        <Button
-                          size="sm"
-                          className="gap-2"
-                          onClick={() => handleGoLive(stream.id)}
-                        >
-                          <Play className="h-4 w-4" />
-                          Start Now
-                        </Button>
+                        {stream.status !== 'live' && stream.lifecycleState !== 'live' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-2"
+                            onClick={() => {
+                              setEditingStream(stream);
+                              setEditStreamTitle(stream.title);
+                              setEditStreamDescription(stream.description);
+                              setEditScheduledTime(stream.scheduledStartTime ? new Date(stream.scheduledStartTime).toISOString().slice(0, 16) : '');
+                              setEditDialogOpen(true);
+                            }}
+                          >
+                            <Edit className="h-4 w-4" />
+                            Edit
+                          </Button>
+                        )}
+                        {stream.lifecycleState !== 'draft' && stream.status !== 'live' && (
+                          <Button
+                            size="sm"
+                            className="gap-2"
+                            onClick={() => handleGoLive(stream.id)}
+                          >
+                            <Play className="h-4 w-4" />
+                            Start Now
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -544,6 +600,298 @@ export default function LiveStreaming() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirmAction?.type === 'start' && 'Start Live Stream'}
+              {confirmAction?.type === 'stop' && 'Stop Live Stream'}
+              {confirmAction?.type === 'delete' && 'Delete Stream Event'}
+              {confirmAction?.type === 'archive' && 'Archive Stream Event'}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmAction?.type === 'start' && 'Are you sure you want to start this live stream? The stream will begin immediately and viewers will be able to join.'}
+              {confirmAction?.type === 'stop' && 'Are you sure you want to stop this live stream? All viewers will be disconnected and the stream will end.'}
+              {confirmAction?.type === 'delete' && 'Are you sure you want to delete this stream event? This action cannot be undone. Live streams cannot be deleted.'}
+              {confirmAction?.type === 'archive' && 'Are you sure you want to archive this stream? Archived streams are moved to historical records.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant={confirmAction?.type === 'delete' || confirmAction?.type === 'stop' ? 'destructive' : 'default'}
+              onClick={confirmActionHandler}
+            >
+              {confirmAction?.type === 'start' && 'Start Stream'}
+              {confirmAction?.type === 'stop' && 'Stop Stream'}
+              {confirmAction?.type === 'delete' && 'Delete'}
+              {confirmAction?.type === 'archive' && 'Archive'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Stream Dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create New Live Stream Event</DialogTitle>
+            <DialogDescription>
+              Create a new live streaming event. You can schedule it for later or start it immediately.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="stream-title">
+                Stream Title <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="stream-title"
+                value={newStreamTitle}
+                onChange={(e) => setNewStreamTitle(e.target.value)}
+                placeholder="e.g., Maha Shivaratri Live Darshan"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="stream-description">Description</Label>
+              <Textarea
+                id="stream-description"
+                value={newStreamDescription}
+                onChange={(e) => setNewStreamDescription(e.target.value)}
+                placeholder="Describe the live stream event..."
+                rows={3}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="stream-platform">Platform</Label>
+                <Select
+                  value={newStreamPlatform}
+                  onValueChange={(value) => setNewStreamPlatform(value as 'youtube' | 'facebook' | 'custom')}
+                >
+                  <SelectTrigger id="stream-platform">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="youtube">YouTube</SelectItem>
+                    <SelectItem value="facebook">Facebook</SelectItem>
+                    <SelectItem value="custom">Custom RTMP</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="stream-scheduled-time">Scheduled Start Time (Optional)</Label>
+                <Input
+                  id="stream-scheduled-time"
+                  type="datetime-local"
+                  value={newStreamScheduledTime}
+                  onChange={(e) => setNewStreamScheduledTime(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Leave scheduled time empty to create as draft. Set a future date/time to schedule automatically.
+            </p>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setCreateDialogOpen(false);
+              setNewStreamTitle('');
+              setNewStreamDescription('');
+              setNewStreamScheduledTime('');
+              setNewStreamPlatform('youtube');
+            }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!newStreamTitle.trim()) {
+                  toast.error('Stream title is required');
+                  return;
+                }
+                
+                try {
+                  // Validate scheduled time if provided
+                  if (newStreamScheduledTime) {
+                    const scheduledDate = new Date(newStreamScheduledTime);
+                    if (scheduledDate <= new Date()) {
+                      toast.error('Scheduled time must be in the future');
+                      return;
+                    }
+                  }
+
+                  const newStream = createLiveStream({
+                    title: newStreamTitle,
+                    description: newStreamDescription,
+                    thumbnail: {
+                      id: 'thumb-1',
+                      name: 'default-thumbnail.png',
+                      url: '/placeholder.svg',
+                      type: 'image/png',
+                      size: 0,
+                      uploadedAt: new Date().toISOString(),
+                    },
+                    status: newStreamScheduledTime ? 'scheduled' : 'offline',
+                    platform: newStreamPlatform,
+                    scheduledStartTime: newStreamScheduledTime || undefined,
+                    commentsEnabled: true,
+                    chatEnabled: true,
+                    multiCameraEnabled: false,
+                    cameras: [],
+                    autoArchiveEnabled: true,
+                    createdBy: 'current-user',
+                  });
+
+                  // If scheduled time was provided, schedule the stream
+                  if (newStreamScheduledTime) {
+                    scheduleLiveStream(newStream.id, new Date(newStreamScheduledTime).toISOString(), 'current-user');
+                  }
+                  
+                  const updatedStreams = getLiveStreams();
+                  setStreams(updatedStreams);
+                  setCreateDialogOpen(false);
+                  setNewStreamTitle('');
+                  setNewStreamDescription('');
+                  setNewStreamScheduledTime('');
+                  setNewStreamPlatform('youtube');
+                  toast.success(newStreamScheduledTime ? 'Stream scheduled successfully' : 'Stream event created successfully');
+                } catch (error) {
+                  console.error('[LiveStreaming] Error creating stream:', error);
+                  toast.error('Failed to create stream');
+                }
+              }}
+              disabled={!newStreamTitle.trim()}
+            >
+              Create Stream
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Stream Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Live Stream Event</DialogTitle>
+            <DialogDescription>
+              Update stream details and schedule. You can schedule it for later or start it immediately.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-stream-title">
+                Stream Title <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="edit-stream-title"
+                value={editStreamTitle}
+                onChange={(e) => setEditStreamTitle(e.target.value)}
+                placeholder="e.g., Maha Shivaratri Live Darshan"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="edit-stream-description">Description</Label>
+              <Textarea
+                id="edit-stream-description"
+                value={editStreamDescription}
+                onChange={(e) => setEditStreamDescription(e.target.value)}
+                placeholder="Describe the live stream event..."
+                rows={3}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-scheduled-time">Scheduled Start Time (Optional)</Label>
+              <Input
+                id="edit-scheduled-time"
+                type="datetime-local"
+                value={editScheduledTime}
+                onChange={(e) => setEditScheduledTime(e.target.value)}
+                min={new Date().toISOString().slice(0, 16)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty to start manually. Set a future date/time to schedule.
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setEditDialogOpen(false);
+                setEditingStream(null);
+                setEditStreamTitle('');
+                setEditStreamDescription('');
+                setEditScheduledTime('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!editStreamTitle.trim()) {
+                  toast.error('Stream title is required');
+                  return;
+                }
+
+                if (!editingStream) return;
+                
+                try {
+                  const updates: Partial<LiveStream> = {
+                    title: editStreamTitle,
+                    description: editStreamDescription,
+                  };
+
+                  // If scheduled time is provided, schedule the stream
+                  if (editScheduledTime) {
+                    const scheduledDate = new Date(editScheduledTime);
+                    if (scheduledDate <= new Date()) {
+                      toast.error('Scheduled time must be in the future');
+                      return;
+                    }
+                    scheduleLiveStream(editingStream.id, scheduledDate.toISOString(), 'current-user');
+                  }
+
+                  // Update stream details
+                  const updated = updateLiveStream(editingStream.id, updates);
+                  
+                  if (updated) {
+                    const updatedStreams = getLiveStreams();
+                    setStreams(updatedStreams);
+                    setEditDialogOpen(false);
+                    setEditingStream(null);
+                    setEditStreamTitle('');
+                    setEditStreamDescription('');
+                    setEditScheduledTime('');
+                    toast.success('Stream updated successfully');
+                  } else {
+                    toast.error('Failed to update stream');
+                  }
+                } catch (error) {
+                  console.error('[LiveStreaming] Error updating stream:', error);
+                  toast.error('Failed to update stream');
+                }
+              }}
+              disabled={!editStreamTitle.trim()}
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }

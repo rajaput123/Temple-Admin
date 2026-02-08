@@ -1,8 +1,10 @@
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
 import { EmptyState } from '@/components/pr/shared/EmptyState';
-import { MessageSquare, Instagram, Facebook, Twitter, Youtube, Share2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { MessageSquare, Instagram, Facebook, Twitter, Youtube, Share2, Filter } from 'lucide-react';
 import type { SocialPlatform } from '@/types/pr-communication';
 import type { SocialPost } from '@/types/communications';
 import '@/styles/pr-communication.css';
@@ -25,7 +27,19 @@ interface PostLogProps {
   posts: SocialPost[];
 }
 
+type PostStatusFilter = 'all' | 'published' | 'scheduled' | 'draft';
+
 export function PostLog({ posts }: PostLogProps) {
+  const [statusFilter, setStatusFilter] = useState<PostStatusFilter>('all');
+
+  const filteredPosts = useMemo(() => {
+    if (statusFilter === 'all') return posts;
+    return posts.filter(post => {
+      const status = (post as any).status || 'published';
+      return status === statusFilter;
+    });
+  }, [posts, statusFilter]);
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -155,20 +169,34 @@ export function PostLog({ posts }: PostLogProps) {
           <div>
             <CardTitle className="text-lg font-semibold flex items-center gap-2">
               <MessageSquare className="h-5 w-5" />
-              Posts
+              Posts & Scheduled Content
             </CardTitle>
             <CardDescription className="mt-1">
-              View all your social media posts and their engagement
+              View all your social media posts, scheduled content, and their engagement
             </CardDescription>
           </div>
-          <Badge variant="secondary" className="text-sm">
-            {posts.length} {posts.length === 1 ? 'post' : 'posts'}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as PostStatusFilter)}>
+              <SelectTrigger className="w-[140px]">
+                <Filter className="h-4 w-4 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Posts</SelectItem>
+                <SelectItem value="published">Published</SelectItem>
+                <SelectItem value="scheduled">Scheduled</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+              </SelectContent>
+            </Select>
+            <Badge variant="secondary" className="text-sm">
+              {filteredPosts.length} {filteredPosts.length === 1 ? 'post' : 'posts'}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
         <DataTable
-          data={posts}
+          data={filteredPosts}
           columns={columns}
           searchable={true}
           searchPlaceholder="Search posts, platforms, or content..."
